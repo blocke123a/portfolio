@@ -1,2 +1,4 @@
 # portfolio
 A collection of some of my projects. See the readme file to gain insight into each project and how to run the code.
+
+Songify_no_gui...: This is a portion of a Python program I made to recommend songs to users. Because the other functionalities required datasets that are too large for Github, I have only included the functionality that matches input lyrics to songs. For example, if you remember a lyric, but you don't know what song it is from, the program will attempt to find the song for you. Due to API licensing I cannot share my API information, so in order to run the program you will need to create a Spotify for Developers account, as well as a MusixMatch account. The program works significantly better with the paid version of Musixmatch, but it should work moderately well with the free version of MusixMatch. In order to run, just run each cell until the end. To run subsequent times, only the final cell needs to be run.
