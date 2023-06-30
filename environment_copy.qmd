@@ -1,0 +1,450 @@
+---
+title: "Environmental Data"
+format: html
+editor: visual
+author: "Nick Gauthier and Blake Wood"
+date: "r Sys.Date()"
+---
+
+Analyzing various environmental datasets for the second plague pandemic in Europe.
+
+## Setup
+
+```{r, echo=FALSE, message=FALSE}
+# load required packages
+library(tidyverse) # data manipulation and visualization
+library(stars) # spatio-temporal data manipulation
+library(WaveletComp) # time series analysis
+library(rnaturalearth) # coastlines for plotting
+
+# this is a package I made that needs to be installed from GitHub
+# uncomment the lines below the first time you run to install it
+#install.packages('remotes')
+#remotes::install_github('nick-gauthier/tidyEOF')
+library(tidyEOF)
+
+# define a bounding box over Europe to crop other datasets
+bbox <- st_bbox(c(xmin = -10, xmax = 47.5, ymin = 26.5, ymax = 62), crs = 4326)
+
+# get a map of European coastlines for plots, don't worry about sf_use_s2() for now
+sf_use_s2(FALSE) 
+coasts <- ne_coastline(returnclass = 'sf', scale = 'medium') %>%
+  st_make_valid() %>%
+  st_crop(bbox) %>%
+  st_set_crs(4326)
+sf_use_s2(TRUE)
+```
+
+# Climate
+
+## PHYDA
+
+The Paleo Hydro-Dynamics Data Assimilation product (PHYDA) is a reconstruction of global temperature and drought over the past 2,000 years. The data can be downloaded from [here](https://zenodo.org/record/1198817), and the original paper describing it can be found [here](https://www.nature.com/articles/sdata201886). The outputs are available on annual (April-March "water year" rather than typical January-December "calendar year) and seasonal (June, July, August"boreal (northern hemisphere) growing season) time scales.
+
+To run this script, download the annual reconstruction file (`da_hydro_AprMar_r.1-2000_d.05-Jan-2018.nc`) from the link above and change the path below to point to where you downloaded the file.
+
+```{r}
+# enter the path to where you downloaded the PHYDA netcdf file here
+phyda_path <- "C:/Users/blake/OneDrive/Desktop/AI_at_Museum/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc"
+```
+
+The following analysis is conducted on the data from June to August for each year.
+
+```{r}
+phyda_spei_JunAug <- read_ncdf(phyda_path, var = 'spei_mn') |>
+  st_warp(st_as_stars(st_bbox(), dx = 2.5, dy = 1.89474)) |>
+  st_crop(bbox) # crop to Europe
+```
+
+```{r}
+phyda_spei_JunAug
+```
+
+```{r}
+plot(phyda_spei_JunAug[,,,1:9])
+```
+
+```{r}
+# calculate the average for each pixel
+spei_avg_space_JunAug <- st_apply(phyda_spei_JunAug, c('x', 'y'), mean)
+plot(spei_avg_space_JunAug)
+
+# calculate the average across each time step
+spei_avg_time_JunAug <- st_apply(phyda_spei_JunAug, c('time'), mean, na.rm = TRUE) |> as_tibble()
+plot(spei_avg_time_JunAug)
+```
+
+```{r}
+ggplot() +
+  geom_stars(data = spei_avg_space_JunAug) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_c(option = 'magma', name = 'SPEI') +
+  theme_bw() +
+  labs(title = "Summer SPEI in Europe",
+       subtitle = 'OCE - Present', 
+       x = "Longitude",
+       y = "Latitude")
+```
+
+```{r}
+ggplot(spei_avg_time_JunAug, aes(time, mean)) +
+  geom_line(alpha = 0.8) +
+  geom_smooth() +
+  theme_bw() +
+  labs(title = 'Summer SPEI in Europe',
+       subtitle = 'OCE - Present',
+       x = 'Year CE',
+       y = 'SPEI')
+```
+
+```{r}
+spei_avg_time_JunAug |>
+  filter(between(time, 1200, 1500)) |> #checking the cooling event again
+ggplot(aes(time, mean)) +
+  geom_line() +
+  theme_bw() +
+  labs(title = 'Summer SPEI in Europe',
+       subtitle = 'OCE - Present',
+       x = 'Year CE',
+       y = 'SPEI') + geom_vline(xintercept = c(1232, 1279, 1324, 1331, 1374), colour = 'red', linetype = "dotted", lwd = 1.2) +
+  scale_x_continuous(breaks = seq(1200, 1500, 25))
+```
+
+```{r}
+spei_avg_time_JunAug |> filter(between(time, 1300, 1500)) |>
+  analyze.wavelet('mean', dj = 1/250, verbose = FALSE, n.sim = 10) |>
+  wt.image()
+```
+
+Analysis of temperature using the June-August data.
+
+```{r}
+phyda_tas_JunAug <- read_ncdf(phyda_path, var = 'tas_mn') |>
+  st_warp(st_as_stars(st_bbox(), dx = 2.5, dy = 1.89474)) |>
+  st_crop(bbox) # crop to Europe
+```
+
+```{r}
+phyda_tas_JunAug
+```
+
+```{r}
+plot(phyda_tas_JunAug[,,,1:9])
+```
+
+```{r}
+# calculate the average for each pixel
+tas_avg_space_JunAug <- st_apply(phyda_tas_JunAug, c('x', 'y'), mean)
+plot(tas_avg_space_JunAug)
+
+# calculate the average across each time step
+tas_avg_time_JunAug <- st_apply(phyda_tas_JunAug, c('time'), mean, na.rm = TRUE) |> as_tibble()
+plot(tas_avg_time_JunAug)
+```
+
+```{r}
+ggplot() +
+  geom_stars(data = tas_avg_space_JunAug) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_c(option = 'magma', name = '°C') +
+  theme_bw() +
+  labs(title = "Mean Summer Temperature",
+       subtitle = 'OCE - Present', 
+       x = "Longitude",
+       y = "Latitude")
+```
+
+```{r}
+ggplot(tas_avg_time_JunAug, aes(time, mean)) +
+  geom_line(alpha = 0.8) +
+  geom_smooth() +
+  theme_bw() +
+  labs(title = 'Mean Summer temperature in Europe',
+       subtitle = 'OCE - Present',
+       x = 'Year CE',
+       y = 'SPEI')
+```
+
+```{r}
+tas_avg_time_JunAug |>
+  filter(between(time, 1200, 1500)) |> #checking the cooling event again
+ggplot(aes(time, mean)) +
+  geom_line() +
+  theme_bw() +
+  labs(title = 'Mean Summer Temperature in Europe',
+       subtitle = 'OCE - Present',
+       x = 'Year CE',
+       y = 'SPEI') + geom_vline(xintercept = c(1258, 1278, 1324, 1331, 1374), colour = 'red', linetype = "dotted", lwd = 1.2) +
+  scale_x_continuous(breaks = seq(1200, 1500, 25))
+```
+
+```{r}
+tas_avg_time_JunAug |> filter(between(time, 1300, 1500)) |>
+  analyze.wavelet('mean', dj = 1/250, verbose = FALSE, n.sim = 10) |>
+  wt.image()
+```
+
+Standard Normal Temperature Data
+
+```{r}
+standard_jun_aug_temp <- mutate(tas_avg_time_JunAug, tas = (mean - mean(mean)) / sd(mean))
+```
+
+```{r}
+ggplot() +
+  geom_line(data = standard_jun_aug_temp, aes(time, tas, color = "June-August"), alpha = 0.8) +
+  theme_bw() +
+  labs(title = 'Standardized Summer Temperature in Europe',
+       subtitle = '0CE - Present',
+       x = 'Year CE',
+       y = 'Standardized Temperature') +
+  scale_color_manual(values = c(#"April-March" = "blue",
+                                "June-August" = "red"), 
+                     name = "Period") +
+  theme(legend.position = "bottom")
+```
+
+Standard Normal SPEI Data
+
+```{r}
+ggplot() +
+  geom_line(data = spei_avg_time_JunAug, aes(time, mean, color = "June-August"), alpha = 0.8) +
+  theme_bw() +
+  labs(title = 'Summer SPEI in Europe',
+       subtitle = '0CE - Present',
+       x = 'Year CE',
+       y = 'SPEI') +
+  scale_color_manual(values = c(#"April-March" = "blue",
+                                "June-August" = "red"), 
+                     name = "Period") +
+  theme(legend.position = "bottom")
+```
+
+Asia Analysis
+
+```{r}
+# define a bounding box over Europe to crop other datasets
+asia_bbox <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
+
+# get a map of European coastlines for plots, don't worry about sf_use_s2() for now
+sf_use_s2(FALSE) 
+coasts <- ne_coastline(returnclass = 'sf', scale = 'medium') %>%
+  st_make_valid() %>%
+  st_crop(asia_bbox) %>%
+  st_set_crs(4326)
+sf_use_s2(TRUE)
+```
+
+Analysis of summer in Asia
+
+```{r}
+phyda_tas_asia_JunAug <- read_ncdf(phyda_path, var = 'tas_mn') |>
+  st_warp(st_as_stars(st_bbox(), dx = 2.5, dy = 1.89474)) |>
+  st_crop(asia_bbox) # crop to Asia
+```
+
+```{r}
+phyda_tas_asia_JunAug
+```
+
+```{r}
+plot(phyda_tas_asia_JunAug[,,,1:9])
+```
+
+```{r}
+# this calculates the average for each pixel across all time steps
+tas_avg_space_asia_JunAug <- st_apply(phyda_tas_asia_JunAug, c('x', 'y'), mean)
+plot(tas_avg_space_asia_JunAug)
+
+# this calculates the average for each time step across all pixels
+tas_avg_time_asia_JunAug <- st_apply(phyda_tas_asia_JunAug, 'time', mean, na.rm = TRUE) %>%
+  as_tibble() # turn into a tibble because we lost the spatial information
+plot(tas_avg_time_asia_JunAug)
+```
+
+```{r}
+ggplot() +
+  geom_stars(data = tas_avg_space_asia_JunAug) +
+  geom_sf(data = coasts) + # add the coast lines 
+  scale_fill_viridis_c(option = 'magma', name = '°C') +
+  theme_bw() +
+  labs(title = 'Mean Summer Temperature', 
+       subtitle = '0CE - Present',
+       x = 'Longitude',
+       y = 'Latitude')
+```
+
+```{r}
+ggplot(tas_avg_time_asia_JunAug, aes(time, mean)) +
+  geom_line(alpha = 0.8) + # alpha adjusts the transparency of the lines
+  geom_smooth() + # smooth trend line
+  theme_bw() +
+  labs(title = 'Mean Summer temperature in Asia', 
+       subtitle = '0CE - Present',
+       x = 'Year CE',
+       y = '°C')
+```
+
+```{r}
+tas_avg_time_asia_JunAug %>%
+  filter(between(time, 1200, 1500)) %>%
+ggplot(aes(time, mean)) +
+  geom_line() +
+  theme_bw() +
+  labs(title = 'Mean Summer temperature in Asia', 
+       subtitle = '0CE - Present',
+       x = 'Year CE',
+       y = '°C') + geom_vline(xintercept = c(1233, 1274, 1316, 1322, 1338, 1369, 1374, 1488, 1492), colour = 'red', linetype = "dotted", lwd = 1.2) + geom_vline(xintercept = c(1331), colour = 'purple', linetype = "dotted", lwd = 1.2) + 
+  scale_x_continuous(breaks = seq(1200, 1500, 25))
+```
+
+```{r message=FALSE}
+tas_avg_time_asia_JunAug %>%
+  filter(between(time, 1300, 1500)) %>%
+  analyze.wavelet('mean', dj = 1/250, verbose = FALSE, n.sim = 10) %>%
+  wt.image()
+```
+
+```{r}
+phyda_spei_asia_JunAug <- read_ncdf(phyda_path, var = 'spei_mn') |>
+  st_warp(st_as_stars(st_bbox(), dx = 2.5, dy = 1.89474)) |>
+  st_crop(asia_bbox) # crop to Asia
+```
+
+```{r}
+phyda_spei_asia_JunAug
+```
+
+```{r}
+plot(phyda_spei_asia_JunAug[,,,1:9])
+plot(phyda_spei_asia_JunAug |> filter((time - 0.5) %in% c(1230:1240)))
+```
+
+```{r}
+# calculate the average for each pixel
+spei_avg_space_asia_JunAug <- st_apply(phyda_spei_asia_JunAug, c('x', 'y'), mean)
+plot(spei_avg_space_asia_JunAug)
+
+# calculate the average across each time step
+spei_avg_time_asia_JunAug <- st_apply(phyda_spei_asia_JunAug, c('time'), mean, na.rm = TRUE) |> as_tibble()
+plot(spei_avg_time_asia_JunAug)
+```
+
+```{r}
+ggplot() +
+  geom_stars(data = spei_avg_space_asia_JunAug) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_c(option = 'magma', name = 'SPEI') +
+  theme_bw() +
+  labs(title = "Mean Summer SPEI",
+       subtitle = 'OCE - Present', 
+       x = "Longitude",
+       y = "Latitude")
+```
+
+```{r}
+ggplot(spei_avg_time_asia_JunAug, aes(time, mean)) +
+  geom_line(alpha = 0.8) +
+  geom_smooth() +
+  theme_bw() +
+  labs(title = 'Mean Summer SPEI in Asia',
+       subtitle = 'OCE - Present',
+       x = 'Year CE',
+       y = 'SPEI')
+```
+
+```{r}
+spei_avg_time_asia_JunAug |>
+  filter(between(time, 1200, 1500)) |>
+ggplot(aes(time, mean)) +
+  geom_line() +
+  theme_bw() +
+  labs(title = 'Mean Summer SPEI in Asia',
+       subtitle = 'OCE - Present',
+       x = 'Year CE',
+       y = 'SPEI') + geom_vline(xintercept = c(1217, 1279, 1324, 1338, 1370, 1484, 1489, 1495), colour = 'red', linetype = "dotted", lwd = 1.2) + geom_vline(xintercept = c(1331), colour = 'purple', linetype = "dotted", lwd = 1.2) + 
+  scale_x_continuous(breaks = seq(1200, 1500, 25))
+```
+
+```{r}
+spei_avg_time_asia_JunAug |> filter(between(time, 1300, 1500)) |>
+  analyze.wavelet('mean', dj = 1/250, verbose = FALSE, n.sim = 10) |>
+  wt.image()
+```
+
+Standard normal temperature data
+
+```{r}
+asia_standard_jun_aug_temp <- mutate(tas_avg_time_asia_JunAug, tas = (mean - mean(mean)) / sd(mean))
+```
+
+```{r}
+ggplot() +
+  geom_line(data = asia_standard_jun_aug_temp, aes(time, tas, color = "June-August"), alpha = 0.8) +
+  theme_bw() +
+  labs(title = 'Standardized Mean Temperature in Asia',
+       subtitle = '0CE - Present',
+       x = 'Year CE',
+       y = 'Standardized Temperature') +
+  scale_color_manual(values = c("June-August" = "red"), 
+                     name = "Period") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+ggplot() +
+  geom_line(data = spei_avg_time_asia_JunAug, aes(time, mean, color = "June-August"), alpha = 0.8) +
+  theme_bw() +
+  labs(title = 'SPEI in Asia',
+       subtitle = '0CE - Present',
+       x = 'Year CE',
+       y = 'SPEI') +
+  scale_color_manual(values = c("June-August" = "red"), 
+                     name = "Period") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+ggplot() +
+  geom_line(data = subset(spei_avg_time_asia_JunAug, time >= 1300 & time < 1400), aes(time, mean, color = "June-August"), alpha = 0.8) +
+  theme_bw() +
+  labs(title = 'SPEI in Asia',
+       subtitle = '1300s',
+       x = 'Year CE',
+       y = 'SPEI') +
+  scale_color_manual(values = c("June-August" = "red"), 
+                     name = "Period") +
+  theme(legend.position = "bottom") + scale_x_continuous(breaks = seq(1300, 1400, 10))
+```
+
+```{r}
+ggplot() +
+  geom_line(data = subset(asia_standard_jun_aug_temp, time >= 1300 & time < 1400), aes(time, mean, color = "June-August"), alpha = 0.8) +
+  theme_bw() +
+  labs(title = 'Annual Temperature in Asia',
+       subtitle = '1300s',
+       x = 'Year CE',
+       y = 'Standardized Temperature') +
+  scale_color_manual(values = c("June-August" = "red"), 
+                     name = "Period") +
+  theme(legend.position = "bottom") + scale_x_continuous(breaks = seq(1300, 1400, 10))
+```
+
+```{r}
+spei_avg_time_asia_JunAug_stars <- phyda_spei_asia_JunAug
+spei_avg_time_asia_JunAug_stars[["spei_mn"]] <- phyda_spei_asia_JunAug[["spei_mn"]]
+```
+
+```{r}
+plot_dat_asia_summ_spei <- spei_avg_time_asia_JunAug_stars|>
+  filter((time - 0.5) %in% c(1330:1340))
+ggplot() +
+  geom_stars(data = plot_dat_asia_summ_spei) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_c(option = 'magma', name = 'SPEI') +
+  theme_bw() +
+  labs(title = "Mean Summer SPEI",
+       subtitle = 'OCE - Present', 
+       x = "Longitude",
+       y = "Latitude") + facet_wrap(~time)
+```
